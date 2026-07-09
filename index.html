@@ -18,14 +18,14 @@
     --text-faint: #33373f;
     --accent: #7cf5d4;                 /* phosphor-mint signal — the one color in the system */
     --accent-dim: rgba(124, 245, 212, 0.14);
-    --dot-past: var(--text-color);
+    --dot-past: #2b6e4e;
     --dot-today: var(--accent);
     --dot-future: transparent;
-    --heat-0: var(--text-faint);       /* elapsed day, 0 tasks completed */
-    --heat-1: #123c2c;
-    --heat-2: #1f6b46;
-    --heat-3: #30a361;
-    --heat-4: #4fe08a;                 /* 4+ tasks completed that day */
+    --heat-0: #2b6e4e;                 /* elapsed day, base green (no completions) */
+    --heat-1: #1f5a3f;                 /* 1 task completed — slightly darker */
+    --heat-2: #154a33;                 /* 2 tasks completed */
+    --heat-3: #0e3827;                 /* 3 tasks completed */
+    --heat-4: #08261b;                 /* 4+ tasks completed — darkest */
     --dot-size: 6px;
     --dot-gap: 10px;
     --radius: 3px;
@@ -326,20 +326,43 @@
   /* ---------- To-do panels ---------- */
   #todo-block {
     display: flex;
-    gap: 1rem;
+    gap: 0;
     pointer-events: auto; /* to-do panels accept input when Lively Interactive mode is on */
+  }
+
+  /* Explicitly re-enable pointer events on all interactive children — Lively's WebView2
+     doesn't always inherit pointer-events:auto from a parent that breaks the chain */
+  #todo-block *, #todo-block input, #todo-block .check, #todo-block .del, #todo-block .move {
+    pointer-events: auto;
   }
 
   .todo-panel {
     flex: 1;
     min-width: 0;
     border-top: 1px solid var(--card-border-strong);
-    padding: 0.7rem 0.9rem 0.8rem 0;
+    padding: 0.7rem 0.9rem 0.8rem 0.9rem;
+    pointer-events: auto;
   }
 
   .todo-panel + .todo-panel {
-    border-left: 1px solid var(--panel-border);
-    padding-left: 0.9rem;
+    border-left: 1px solid var(--card-border-strong);
+  }
+
+  .move-toast {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+    padding: 0.15rem 0;
+    opacity: 0;
+    transition: opacity 0.3s;
+    height: 0;
+    overflow: hidden;
+  }
+
+  .move-toast.visible {
+    opacity: 1;
+    height: auto;
   }
 
   .todo-header {
@@ -892,10 +915,18 @@
 
     var list = document.createElement("ul");
     list.className = "todo-list";
-    items.forEach(function (item) {
+    // Render pending (undone) items first, completed items at bottom
+    var sorted = items.slice().sort(function (a, b) { return (a.done ? 1 : 0) - (b.done ? 1 : 0); });
+    sorted.forEach(function (item) {
       list.appendChild(renderItem(def.type, key, item, now));
     });
     panel.appendChild(list);
+
+    // Toast for move feedback — shown briefly when item is moved to a non-visible period
+    var toast = document.createElement("div");
+    toast.className = "move-toast";
+    toast.setAttribute("data-panel", def.type);
+    panel.appendChild(toast);
 
     var addInput = document.createElement("input");
     addInput.className = "todo-add";
@@ -919,7 +950,7 @@
     return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   }
 
-  function moveItem(type, key, item, dir, now) {
+  function moveItem(type, key, item, dir, now, toastEl) {
     var arr = getItems(type, key);
     var idx = arr.findIndex(function (it) { return it.id === item.id; });
     if (idx === -1) return;
@@ -928,7 +959,20 @@
     var targetKey = shiftPeriodKey(type, key, dir);
     getItems(type, targetKey).push(item);
     saveStore(store);
+    // Show destination label in the panel rather than silently removing the item from view.
+    // The item moved to a period not currently displayed, so re-render immediately and
+    // briefly flash a "moved to …" confirmation so the user knows it wasn't deleted.
+    var targetDate = keyToDate(type, targetKey);
+    var targetLabel = PANEL_BY_TYPE[type].label(targetDate);
     renderTodos(now);
+    // Re-find the toast after re-render (renderTodos rebuilt the DOM)
+    var allToasts = document.querySelectorAll(".move-toast[data-panel=\"" + type + "\"]");
+    if (allToasts.length) {
+      var toast = allToasts[0];
+      toast.textContent = "moved to " + targetLabel;
+      toast.classList.add("visible");
+      setTimeout(function () { toast.classList.remove("visible"); }, 2500);
+    }
   }
 
   function renderItem(type, key, item, now) {
@@ -999,9 +1043,15 @@
 
     var dates = document.createElement("div");
     dates.className = "item-dates";
-    dates.textContent = item.done && item.completedAt
-      ? "added " + formatDate(item.createdAt) + " · done " + formatDate(item.completedAt)
-      : "added " + formatDate(item.createdAt);
+    if (item.done && item.completedAt) {
+      var mins = Math.round((new Date(item.completedAt) - new Date(item.createdAt)) / 60000);
+      var duration = mins < 60
+        ? mins + "m"
+        : Math.floor(mins / 60) + "h " + (mins % 60) + "m";
+      dates.textContent = "added " + formatDate(item.createdAt) + " · done " + formatDate(item.completedAt) + " · " + duration;
+    } else {
+      dates.textContent = "added " + formatDate(item.createdAt);
+    }
     li.appendChild(dates);
 
     return li;
@@ -1012,7 +1062,8 @@
     input.className = "item-edit";
     input.type = "text";
     input.value = item.text;
-    li.replaceChild(input, textEl);
+    // textEl is inside the .item-row div, not a direct li child — use parentNode
+    textEl.parentNode.replaceChild(input, textEl);
     input.focus();
     input.select();
 
