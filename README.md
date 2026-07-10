@@ -3,8 +3,6 @@
 > Your calendar shows you *what day it is.*  
 > This shows you *how much of your life is passing.*
 
-[![GitHub Stars](https://img.shields.io/github/stars/shaambhavshankar/year-progress-wallpaper?style=social)](https://github.com/shaambhavshankar/year-progress-wallpaper/stargazers)
-
 **If this changes how you work, star it.** It takes one second and tells me to keep building.
 
 ---
@@ -171,3 +169,15 @@ localStorage.setItem("yearProgressTodos", "<paste value here>")
 - Single `index.html`. No build step, no dependencies, no framework.
 - Past periods are never deleted on rollover — they stay in `localStorage` and are just no longer shown in the UI.
 - Tasks store `createdAt` and `completedAt` as ISO timestamps. Duration is computed at render time.
+
+---
+
+## Star History
+
+<a href="https://www.star-history.com/?type=date&repos=shaambhavshankar%2Fyear-progress-wallpaper">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=shaambhavshankar/year-progress-wallpaper&type=date&theme=dark&legend=top-left&sealed_token=4svvC_Ge4S0F5I6c-q_Xezy5Vs9T8zVYEhRX2d9peBEArT5P05jIYWwxjnoZBkYuKdH40Z75PLIfZSxewszMt8yBs4wblHt2E64sxNhyBpsq3mMeLjMh5GKsG88dL2nP60TTHh5MPPfILu8dKui9Yc8yRUuOhnrTvjmQyc910jJejU9EuB3CpxGx14pA" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=shaambhavshankar/year-progress-wallpaper&type=date&legend=top-left&sealed_token=4svvC_Ge4S0F5I6c-q_Xezy5Vs9T8zVYEhRX2d9peBEArT5P05jIYWwxjnoZBkYuKdH40Z75PLIfZSxewszMt8yBs4wblHt2E64sxNhyBpsq3mMeLjMh5GKsG88dL2nP60TTHh5MPPfILu8dKui9Yc8yRUuOhnrTvjmQyc910jJejU9EuB3CpxGx14pA" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=shaambhavshankar/year-progress-wallpaper&type=date&legend=top-left&sealed_token=4svvC_Ge4S0F5I6c-q_Xezy5Vs9T8zVYEhRX2d9peBEArT5P05jIYWwxjnoZBkYuKdH40Z75PLIfZSxewszMt8yBs4wblHt2E64sxNhyBpsq3mMeLjMh5GKsG88dL2nP60TTHh5MPPfILu8dKui9Yc8yRUuOhnrTvjmQyc910jJejU9EuB3CpxGx14pA" />
+ </picture>
+</a>
