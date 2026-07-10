@@ -375,13 +375,22 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    margin-bottom: 0.6rem;
+    margin-bottom: 0.3rem;
     font-family: var(--font-mono);
     font-size: 0.62rem;
     letter-spacing: 0.16em;
     text-transform: uppercase;
     font-weight: 400;
     color: var(--text-color);
+  }
+
+  .todo-mins {
+    font-family: var(--font-mono);
+    font-size: 0.56rem;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    opacity: 0.75;
+    margin-bottom: 0.6rem;
   }
 
   .todo-count {
@@ -779,12 +788,24 @@
 
     var monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
 
+    // Quarter end: first day of the month starting the next quarter (Jan/Apr/Jul/Oct).
+    var qStartMonth = Math.floor(now.getMonth() / 3) * 3;
+    var quarterEnd = new Date(now.getFullYear(), qStartMonth + 3, 1, 0, 0, 0, 0);
+
     var yearEnd = new Date(now.getFullYear() + 1, 0, 1, 0, 0, 0, 0);
 
     document.getElementById("stat-mins-day").textContent = minutesUntil(dayEnd, now).toLocaleString("en-US");
     document.getElementById("stat-mins-week").textContent = minutesUntil(weekEnd, now).toLocaleString("en-US");
     document.getElementById("stat-mins-month").textContent = minutesUntil(monthEnd, now).toLocaleString("en-US");
     document.getElementById("stat-mins-year").textContent = minutesUntil(yearEnd, now).toLocaleString("en-US");
+
+    // Per-column "minutes left in this period" lines in the todo panels.
+    var periodEnds = { year: yearEnd, quarter: quarterEnd, month: monthEnd, week: weekEnd };
+    document.querySelectorAll(".todo-mins").forEach(function (el) {
+      var end = periodEnds[el.getAttribute("data-mins")];
+      if (!end) return;
+      el.textContent = minutesUntil(end, now).toLocaleString("en-US") + " min left";
+    });
   }
 
   // Tally completed-task counts per local date key ("YYYY-MM-DD"), across all 4 lists combined.
@@ -953,6 +974,8 @@
     });
     // panels rebuilt — re-report their rects to the native host (if present)
     if (window.__wp && window.__wp.reportRects) window.__wp.reportRects();
+    // fill the freshly-created per-column "min left" lines immediately (next tick is up to 1s away)
+    renderLiveCountdown();
   }
 
   function renderPanel(def, now) {
@@ -973,6 +996,13 @@
     header.appendChild(title);
     header.appendChild(count);
     panel.appendChild(header);
+
+    // Live "minutes left in this period" line. Filled + ticked by renderLiveCountdown
+    // via the data-mins attribute (which carries the panel type).
+    var mins = document.createElement("div");
+    mins.className = "todo-mins";
+    mins.setAttribute("data-mins", def.type);
+    panel.appendChild(mins);
 
     var list = document.createElement("ul");
     list.className = "todo-list";
