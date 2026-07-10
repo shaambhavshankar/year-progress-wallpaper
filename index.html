@@ -227,7 +227,7 @@
 
   #mins-tiles {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: 1fr 1fr;
     margin-top: 0.65rem;
   }
 
@@ -235,12 +235,10 @@
     padding-right: 0.5rem;
   }
 
+  /* 2x2: right column (even) gets a left divider like the stat tiles above */
   #mins-tiles .stat-tile:nth-child(even) {
-    padding-left: 0.5rem;
-  }
-
-  #mins-tiles .stat-tile:nth-child(3) {
-    padding-left: 0.5rem;
+    border-left: 1px solid var(--card-border);
+    padding-left: 0.9rem;
   }
 
   #mins-tiles .num {
@@ -579,10 +577,14 @@
           </div>
           <div class="stat-tile">
             <div class="num" id="stat-weeks"></div>
-            <div class="lbl">WKS LEFT</div>
+            <div class="lbl">WEEKS LEFT</div>
           </div>
         </div>
         <div id="mins-tiles">
+          <div class="stat-tile">
+            <div class="num" id="stat-mins-day"></div>
+            <div class="lbl">MIN / DAY</div>
+          </div>
           <div class="stat-tile">
             <div class="num" id="stat-mins-week"></div>
             <div class="lbl">MIN / WK</div>
@@ -770,6 +772,8 @@
   function renderLiveCountdown() {
     var now = new Date();
 
+    var dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+
     var weekStart = startOfWeek(now, WEEK_START);
     var weekEnd = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 7, 0, 0, 0, 0);
 
@@ -777,6 +781,7 @@
 
     var yearEnd = new Date(now.getFullYear() + 1, 0, 1, 0, 0, 0, 0);
 
+    document.getElementById("stat-mins-day").textContent = minutesUntil(dayEnd, now).toLocaleString("en-US");
     document.getElementById("stat-mins-week").textContent = minutesUntil(weekEnd, now).toLocaleString("en-US");
     document.getElementById("stat-mins-month").textContent = minutesUntil(monthEnd, now).toLocaleString("en-US");
     document.getElementById("stat-mins-year").textContent = minutesUntil(yearEnd, now).toLocaleString("en-US");
