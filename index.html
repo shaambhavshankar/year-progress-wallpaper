@@ -9,7 +9,7 @@
      Edit these to restyle without touching layout/logic below.
      ============================================================ */
   :root {
-    --bg-color: #05060a;               /* void */
+    --bg-color: transparent;           /* void — transparent so macOS desktop (Finder icons) shows through */
     --card-border: rgba(255, 255, 255, 0.09);
     --card-border-strong: rgba(255, 255, 255, 0.16);
     --panel-border: rgba(255, 255, 255, 0.09);
@@ -50,6 +50,9 @@
     font-family: var(--font-family);
     color: var(--text-color);
     overflow: auto; /* narrow/short windows scroll instead of silently clipping content */
+    pointer-events: none; /* empty desktop stays non-hit-testable so elementFromPoint()
+                             returns null there — native host uses that to pass clicks
+                             through to Finder. Panels below re-enable pointer-events:auto. */
   }
 
   #app {
@@ -342,7 +345,12 @@
     border-top: 1px solid var(--card-border-strong);
     padding: 0.7rem 0.9rem 0.8rem 0.9rem;
     pointer-events: auto;
+    cursor: text; /* I-beam anywhere over the column — signals "click to type" */
   }
+  /* controls inside keep their own cursor */
+  .todo-panel .check,
+  .todo-panel .del,
+  .todo-panel .move { cursor: pointer; }
 
   .todo-panel + .todo-panel {
     border-left: 1px solid var(--card-border-strong);
@@ -502,10 +510,54 @@
   }
 
   .todo-add::placeholder { color: var(--text-faint); }
+
+  /* ============================================================
+     THEMES + OPACITY  (set on <html>: data-theme, --scrim-opacity)
+     ============================================================ */
+
+  /* Neutral theme: white/grey only. Readable on ANY wallpaper — no color
+     that could vanish against a matching background. Overrides the color
+     vars; layout/sizing vars untouched. */
+  html[data-theme="neutral"] {
+    --text-color: #ffffff;
+    --text-muted: #d4d7dc;
+    --text-faint: #a8acb3;
+    --accent: #ffffff;
+    --accent-dim: rgba(255, 255, 255, 0.22);
+    --card-border: rgba(255, 255, 255, 0.22);
+    --card-border-strong: rgba(255, 255, 255, 0.38);
+    --panel-border: rgba(255, 255, 255, 0.22);
+    --dot-past: #cfd3d9;
+    --heat-0: #9aa0a8;   /* elapsed, no completions — light grey */
+    --heat-1: #b6bbc2;
+    --heat-2: #cfd3d9;
+    --heat-3: #e8eaee;
+    --heat-4: #ffffff;   /* most completions — pure white */
+  }
+  /* Neutral text gets a soft shadow so white stays legible on light wallpapers. */
+  html[data-theme="neutral"] body {
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  }
+
+  /* Opacity scrim: a dark full-screen backdrop whose alpha the slider drives.
+     pointer-events:none is CRITICAL — it must never intercept clicks or the
+     native pass-through hit-test would treat the whole screen as interactive
+     and folders would stop working. z-index below #app content. */
+  #scrim {
+    position: fixed;
+    inset: 0;
+    background: #05060a;
+    opacity: var(--scrim-opacity, 0);
+    pointer-events: none;
+    z-index: 0;
+    transition: opacity 0.25s;
+  }
+  #layout { position: absolute; z-index: 1; }
 </style>
 </head>
 <body>
 <div id="app">
+  <div id="scrim"></div>
   <div id="layout">
     <div id="top-row">
       <div id="stats-block">
@@ -892,6 +944,8 @@
     PANEL_DEFS.forEach(function (def) {
       block.appendChild(renderPanel(def, now));
     });
+    // panels rebuilt — re-report their rects to the native host (if present)
+    if (window.__wp && window.__wp.reportRects) window.__wp.reportRects();
   }
 
   function renderPanel(def, now) {
@@ -942,6 +996,15 @@
       renderTodos(now);
     });
     panel.appendChild(addInput);
+
+    // Click anywhere in the column's empty space -> focus the add-input. Makes the
+    // whole panel a forgiving target instead of the thin input line. Clicks on real
+    // controls (check/move/del/text/input) keep their own behavior.
+    panel.addEventListener("mousedown", function (e) {
+      if (e.target.closest(".check, .del, .move, .item-text, .item-edit, input")) return;
+      e.preventDefault();          // don't steal focus from an active edit mid-commit
+      addInput.focus();
+    });
 
     return panel;
   }
@@ -1114,11 +1177,85 @@
     }, SAFETY_CHECK_INTERVAL_MS);
   }
 
+  /* ============================================================
+     SETTINGS  (theme + background opacity) — own storage key, so
+     todo data is never touched by settings writes.
+     ============================================================ */
+  var SETTINGS_KEY = "yearProgressSettings";
+
+  function loadSettings() {
+    var defaults = { theme: "original", opacity: 0 };
+    try {
+      var raw = localStorage.getItem(SETTINGS_KEY);
+      if (!raw) return defaults;
+      var s = JSON.parse(raw);
+      return {
+        theme: (s.theme === "neutral") ? "neutral" : "original",
+        opacity: (typeof s.opacity === "number") ? Math.max(0, Math.min(100, s.opacity)) : 0
+      };
+    } catch (e) {
+      return defaults;
+    }
+  }
+
+  function saveSettings(s) {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
+    catch (e) { console.warn("settings save failed", e); }
+  }
+
+  function applySettings(s) {
+    var root = document.documentElement;
+    if (s.theme === "neutral") root.setAttribute("data-theme", "neutral");
+    else root.removeAttribute("data-theme");
+    root.style.setProperty("--scrim-opacity", (s.opacity / 100).toString());
+  }
+
+  var currentSettings = loadSettings();
+
+  // Public API the native app calls (menu bar drives settings — no in-page UI).
+  // Also lets the native menu read current values to show checkmarks.
+  window.__wp = {
+    setTheme: function (theme) {
+      currentSettings.theme = (theme === "neutral") ? "neutral" : "original";
+      applySettings(currentSettings);
+      saveSettings(currentSettings);
+    },
+    setOpacity: function (pct) {
+      currentSettings.opacity = Math.max(0, Math.min(100, parseInt(pct, 10) || 0));
+      applySettings(currentSettings);
+      saveSettings(currentSettings);
+    },
+    getSettings: function () { return currentSettings; }
+  };
+
+  // Report interactive rectangles (todo panels) to the native host so it can do a
+  // SYNCHRONOUS point-in-rect test on mouse-move — no async elementFromPoint race,
+  // which was causing ~80% of clicks to leak to the desktop. Sent on every render
+  // and on resize. Coordinates are page (top-left origin) CSS pixels.
+  function reportRects() {
+    if (!(window.webkit && window.webkit.messageHandlers &&
+          window.webkit.messageHandlers.rects)) return;
+    var rects = [];
+    document.querySelectorAll(".todo-panel").forEach(function (p) {
+      var r = p.getBoundingClientRect();
+      rects.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+    });
+    window.webkit.messageHandlers.rects.postMessage(rects);
+  }
+  window.__wp.reportRects = reportRects;
+
+  function initSettings() {
+    applySettings(currentSettings);
+    reportRects();
+    window.addEventListener("resize", reportRects);
+  }
+
   renderAll();
   scheduleMidnightUpdate();
   startSafetyNet();
   renderLiveCountdown();
   setInterval(renderLiveCountdown, 1000);
+  initSettings();
 })();
 </script>
 </body>
