@@ -1,0 +1,1387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Year Progress</title>
+<style>
+  /* ============================================================
+     CONSTANTS — colors, sizing, spacing, placement.
+     Edit these to restyle without touching layout/logic below.
+     ============================================================ */
+  :root {
+    --bg-color: #05060a;               /* solid void — Windows/Lively build, no desktop show-through */
+    --card-border: rgba(255, 255, 255, 0.09);
+    --card-border-strong: rgba(255, 255, 255, 0.16);
+    --panel-border: rgba(255, 255, 255, 0.09);
+    --text-color: #f0f3f7;             /* ink */
+    --text-muted: #545b66;             /* dim */
+    --text-faint: #33373f;
+    --accent: #7cf5d4;                 /* phosphor-mint signal — the one color in the system */
+    --accent-dim: rgba(124, 245, 212, 0.14);
+    --dot-past: #2b6e4e;
+    --dot-today: var(--accent);
+    --dot-future: transparent;
+    --heat-0: #2b6e4e;                 /* elapsed day, base green (no completions) */
+    --heat-1: #1f5a3f;                 /* 1 task completed — slightly darker */
+    --heat-2: #154a33;                 /* 2 tasks completed */
+    --heat-3: #0e3827;                 /* 3 tasks completed */
+    --heat-4: #08261b;                 /* 4+ tasks completed — darkest */
+    --dot-size: 6px;
+    --dot-gap: 10px;
+    --radius: 3px;
+    --font-mono: "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    --font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+
+    --layout-top: 5vh;
+    --layout-left: 3vw;
+    --layout-right: 3vw;
+    --stats-width: 16rem;
+    --month-card-width: 11.5rem;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg-color);
+    font-family: var(--font-family);
+    color: var(--text-color);
+    overflow: auto; /* narrow/short windows scroll instead of silently clipping content */
+    pointer-events: none; /* empty desktop stays non-hit-testable so elementFromPoint()
+                             returns null there — native host uses that to pass clicks
+                             through to Finder. Panels below re-enable pointer-events:auto. */
+  }
+
+  #app {
+    position: fixed;
+    top: 0; right: 0; left: 0; bottom: 0;
+    pointer-events: none; /* let clicks pass through to desktop when idle; re-enabled per-panel below */
+    overflow: auto;
+  }
+
+  #layout {
+    position: absolute;
+    top: var(--layout-top);
+    left: var(--layout-left);
+    right: var(--layout-right);
+    display: flex;
+    flex-direction: column;
+    gap: 1.6rem;
+  }
+
+  /* ---------- Top row: stats + month grid ---------- */
+  #top-row {
+    display: flex;
+    gap: 2.2rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  /* ---------- Stats block ---------- */
+  #stats-block {
+    width: var(--stats-width);
+    flex-shrink: 0;
+  }
+
+  /* Fluid down from desktop toward tablet width: month grid drops to 2 columns once
+     4 columns would squeeze below a legible cell size, stats block goes full-width above it. */
+  @media (max-width: 1100px) {
+    #stats-block { width: 100%; }
+    #month-grid { min-width: 100%; grid-template-columns: repeat(2, 1fr) !important; }
+  }
+
+  /* Phone-width fallback: everything stacks single-column, todo panels go vertical. */
+  @media (max-width: 640px) {
+    :root {
+      --layout-left: 5vw;
+      --layout-right: 5vw;
+      --stats-width: 100%;
+    }
+    #day-number { font-size: 2.4rem; }
+    #month-grid { grid-template-columns: repeat(1, 1fr) !important; }
+    #stat-tiles, #mins-tiles { grid-template-columns: repeat(2, 1fr) !important; }
+    #todo-block { flex-direction: column; gap: 1.4rem; }
+    .todo-panel { border-left: none !important; padding-left: 0 !important; }
+    .todo-panel + .todo-panel { border-left: none; border-top: 1px solid var(--panel-border); padding-top: 0.9rem; }
+  }
+
+  #day-readout {
+    position: relative;
+  }
+
+  #day-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.22em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  #day-number {
+    font-size: 3.6rem;
+    font-weight: 300;
+    line-height: 1;
+    font-family: var(--font-mono);
+    letter-spacing: -0.02em;
+    margin-top: 0.35rem;
+  }
+
+  #day-of-total {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    margin-top: 0.3rem;
+  }
+
+  /* signature element: thin scanline under the readout, drifting */
+  #scanline {
+    height: 1px;
+    margin-top: 0.9rem;
+    background: linear-gradient(90deg, transparent, var(--accent) 45%, transparent 90%);
+    background-size: 220% 100%;
+    animation: scan 5s linear infinite;
+  }
+
+  @keyframes scan {
+    0% { background-position: 0% 0; }
+    100% { background-position: -220% 0; }
+  }
+
+  .stats-row-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-top: 1.8rem;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.18em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  .stats-row-label .pct {
+    color: var(--accent);
+    font-size: 1rem;
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+
+  #progress-track {
+    margin-top: 0.5rem;
+    width: 100%;
+    height: 1px;
+    background: var(--card-border);
+    position: relative;
+  }
+
+  #progress-fill {
+    height: 1px;
+    background: var(--accent);
+    position: relative;
+  }
+
+  #progress-fill::after {
+    content: "";
+    position: absolute;
+    right: -1px;
+    top: -2.5px;
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 6px 1px var(--accent-dim);
+  }
+
+  #stat-tiles {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin-top: 1.6rem;
+  }
+
+  .stat-tile {
+    border-top: 1px solid var(--card-border);
+    padding: 0.65rem 0.9rem 0 0;
+  }
+
+  .stat-tile:nth-child(even) {
+    border-left: 1px solid var(--card-border);
+    padding-left: 0.9rem;
+  }
+
+  .stat-tile .num {
+    font-size: 1.2rem;
+    font-weight: 300;
+    font-family: var(--font-mono);
+  }
+
+  .stat-tile .lbl {
+    font-size: 0.6rem;
+    letter-spacing: 0.14em;
+    color: var(--text-muted);
+    margin-top: 0.15rem;
+    text-transform: uppercase;
+  }
+
+  #mins-tiles {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin-top: 0.65rem;
+  }
+
+  #mins-tiles .stat-tile {
+    padding-right: 0.5rem;
+  }
+
+  /* 2x2: right column (even) gets a left divider like the stat tiles above */
+  #mins-tiles .stat-tile:nth-child(even) {
+    border-left: 1px solid var(--card-border);
+    padding-left: 0.9rem;
+  }
+
+  #mins-tiles .num {
+    font-size: 1rem;
+  }
+
+  /* ---------- Month grid ---------- */
+  #month-grid {
+    flex: 1 1 32rem; /* shrinks with the row, but wraps below stats-block before squeezing illegibly thin */
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.9rem;
+    pointer-events: none;
+  }
+
+  .month-card {
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 0.85rem 0.8rem 0.9rem;
+    transition: border-color 0.3s;
+  }
+
+  .month-card.current {
+    border-color: var(--card-border-strong);
+  }
+
+  .month-name {
+    font-family: var(--font-mono);
+    text-align: left;
+    font-size: 0.62rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .month-card.current .month-name { color: var(--accent); }
+  .month-card:not(.current) .month-name { color: var(--text-muted); }
+
+  .month-name .idx { color: var(--text-faint); }
+
+  .day-dots {
+    display: grid;
+    grid-template-columns: repeat(7, var(--dot-size));
+    gap: var(--dot-gap);
+    justify-content: start;
+  }
+
+  .dot {
+    width: var(--dot-size);
+    height: var(--dot-size);
+    border: 1px solid var(--text-faint);
+    background: transparent;
+  }
+
+  .dot-empty { border-color: transparent; }
+
+  .dot-past {
+    background: var(--dot-past);
+    border-color: var(--dot-past);
+  }
+
+  .dot-past.heat-0 { background: var(--heat-0); border-color: var(--heat-0); }
+  .dot-past.heat-1 { background: var(--heat-1); border-color: var(--heat-1); }
+  .dot-past.heat-2 { background: var(--heat-2); border-color: var(--heat-2); }
+  .dot-past.heat-3 { background: var(--heat-3); border-color: var(--heat-3); }
+  .dot-past.heat-4 { background: var(--heat-4); border-color: var(--heat-4); }
+
+  .dot-today {
+    background: var(--accent);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 0 var(--accent-dim);
+    animation: pulse-today 2.2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-today {
+    0%, 100% { box-shadow: 0 0 0 0 var(--accent-dim); }
+    50% { box-shadow: 0 0 0 4px var(--accent-dim); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dot-today, #scanline { animation: none; }
+  }
+
+  /* ---------- To-do panels ---------- */
+  #todo-block {
+    display: flex;
+    gap: 0;
+    pointer-events: auto; /* to-do panels accept input when Lively Interactive mode is on */
+  }
+
+  /* Explicitly re-enable pointer events on all interactive children — Lively's WebView2
+     doesn't always inherit pointer-events:auto from a parent that breaks the chain */
+  #todo-block *, #todo-block input, #todo-block .check, #todo-block .del, #todo-block .move {
+    pointer-events: auto;
+  }
+
+  .todo-panel {
+    flex: 1;
+    min-width: 0;
+    border-top: 1px solid var(--card-border-strong);
+    padding: 0.7rem 0.9rem 0.8rem 0.9rem;
+    pointer-events: auto;
+    cursor: text; /* I-beam anywhere over the column — signals "click to type" */
+  }
+  /* controls inside keep their own cursor */
+  .todo-panel .check,
+  .todo-panel .del,
+  .todo-panel .move { cursor: pointer; }
+
+  .todo-panel + .todo-panel {
+    border-left: 1px solid var(--card-border-strong);
+  }
+
+  .move-toast {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+    padding: 0.15rem 0;
+    opacity: 0;
+    transition: opacity 0.3s;
+    height: 0;
+    overflow: hidden;
+  }
+
+  .move-toast.visible {
+    opacity: 1;
+    height: auto;
+  }
+
+  .todo-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.3rem;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 400;
+    color: var(--text-color);
+  }
+
+  .todo-mins {
+    font-family: var(--font-mono);
+    font-size: 0.56rem;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    opacity: 0.75;
+    margin-bottom: 0.6rem;
+  }
+
+  .todo-count {
+    font-weight: 400;
+    color: var(--accent);
+    font-size: 0.62rem;
+    letter-spacing: 0;
+  }
+
+  .todo-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 13rem;
+    overflow-y: auto;
+  }
+
+  .todo-item {
+    display: flex;
+    flex-direction: column;
+    padding: 0.18rem 0;
+    font-size: 0.76rem;
+  }
+
+  .item-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .item-dates {
+    margin-left: calc(11px + 0.4rem); /* align under text, past the checkbox */
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    color: var(--text-faint);
+  }
+
+  .todo-item .check {
+    width: 11px;
+    height: 11px;
+    flex-shrink: 0;
+    border: 1px solid var(--text-muted);
+    cursor: pointer;
+  }
+
+  .todo-item.done .check {
+    background: var(--accent);
+    border-color: var(--accent);
+    box-shadow: 0 0 4px 0 var(--accent-dim);
+  }
+
+  .todo-item .item-text {
+    flex: 1;
+    cursor: text;
+    word-break: break-word;
+    outline: none;
+  }
+
+  .todo-item.done .item-text {
+    text-decoration: line-through;
+    color: var(--text-muted);
+  }
+
+  .todo-item .item-edit {
+    flex: 1;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--panel-border);
+    color: var(--text-color);
+    font: inherit;
+    outline: none;
+  }
+
+  .todo-item .del {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+    font-size: 0.68rem;
+    padding: 0 0.15rem;
+  }
+
+  .todo-item .move {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    padding: 0 0.1rem;
+  }
+
+  .todo-item .move:hover { color: var(--accent); }
+  .todo-item:hover .del,
+  .todo-item:hover .move { opacity: 1; }
+
+  .pending-badge {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    padding: 0 0.25rem;
+    line-height: 1.4;
+  }
+
+  .todo-add {
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-top: 1px solid var(--panel-border);
+    margin-top: 0.4rem;
+    padding-top: 0.5rem;
+    color: var(--text-color);
+    font: inherit;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+    outline: none;
+  }
+
+  .todo-add::placeholder { color: var(--text-faint); }
+
+  /* ============================================================
+     THEMES + OPACITY  (set on <html>: data-theme, --scrim-opacity)
+     ============================================================ */
+
+  /* Neutral theme: white/grey only. Readable on ANY wallpaper — no color
+     that could vanish against a matching background. Overrides the color
+     vars; layout/sizing vars untouched. */
+  html[data-theme="neutral"] {
+    --text-color: #ffffff;
+    --text-muted: #d4d7dc;
+    --text-faint: #a8acb3;
+    --accent: #ffffff;
+    --accent-dim: rgba(255, 255, 255, 0.22);
+    --card-border: rgba(255, 255, 255, 0.22);
+    --card-border-strong: rgba(255, 255, 255, 0.38);
+    --panel-border: rgba(255, 255, 255, 0.22);
+    --dot-past: #cfd3d9;
+    --heat-0: #9aa0a8;   /* elapsed, no completions — light grey */
+    --heat-1: #b6bbc2;
+    --heat-2: #cfd3d9;
+    --heat-3: #e8eaee;
+    --heat-4: #ffffff;   /* most completions — pure white */
+  }
+  /* Neutral text gets a soft shadow so white stays legible on light wallpapers. */
+  html[data-theme="neutral"] body {
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  }
+
+  /* White theme: EVERY text color and dot is pure #ffffff — zero grey. Lines use
+     white at reduced alpha (still pure white, no grey hex) so borders read as
+     faint white hairlines rather than a solid block. All heat levels collapse to
+     white — the heatmap gradient is gone by design in this theme. */
+  html[data-theme="white"] {
+    --text-color: #ffffff;
+    --text-muted: #ffffff;
+    --text-faint: #ffffff;
+    --accent: #ffffff;
+    --accent-dim: rgba(255, 255, 255, 0.28);
+    --card-border: rgba(255, 255, 255, 0.55);
+    --card-border-strong: rgba(255, 255, 255, 0.8);
+    --panel-border: rgba(255, 255, 255, 0.55);
+    --dot-past: #ffffff;
+    --heat-0: #ffffff;
+    --heat-1: #ffffff;
+    --heat-2: #ffffff;
+    --heat-3: #ffffff;
+    --heat-4: #ffffff;
+  }
+  html[data-theme="white"] body {
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  }
+  /* Future/empty dots have a faint border in the base theme via --text-faint; in
+     white theme that would become a solid white square, so soften to a hairline. */
+  html[data-theme="white"] .dot { border-color: rgba(255, 255, 255, 0.5); }
+  html[data-theme="white"] .dot-empty { border-color: transparent; }
+
+  /* Opacity scrim: a dark full-screen backdrop whose alpha the slider drives.
+     pointer-events:none is CRITICAL — it must never intercept clicks or the
+     native pass-through hit-test would treat the whole screen as interactive
+     and folders would stop working. z-index below #app content. */
+  #scrim {
+    position: fixed;
+    inset: 0;
+    background: #05060a;
+    opacity: var(--scrim-opacity, 0);
+    pointer-events: none;
+    z-index: 0;
+    transition: opacity 0.25s;
+  }
+  #layout { position: absolute; z-index: 1; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="scrim"></div>
+  <div id="layout">
+    <div id="top-row">
+      <div id="stats-block">
+        <div id="day-readout">
+          <div id="day-eyebrow"></div>
+          <div id="day-number"></div>
+          <div id="day-of-total"></div>
+          <div id="scanline"></div>
+        </div>
+        <div class="stats-row-label">
+          <span>ELAPSED</span>
+          <span class="pct" id="pct-label"></span>
+        </div>
+        <div id="progress-track"><div id="progress-fill"></div></div>
+        <div id="stat-tiles">
+          <div class="stat-tile">
+            <div class="num" id="stat-remaining"></div>
+            <div class="lbl" id="stat-remaining-lbl"></div>
+          </div>
+          <div class="stat-tile">
+            <div class="num" id="stat-weeks"></div>
+            <div class="lbl">WEEKS LEFT</div>
+          </div>
+        </div>
+        <div id="mins-tiles">
+          <div class="stat-tile">
+            <div class="num" id="stat-mins-day"></div>
+            <div class="lbl">MIN / DAY</div>
+          </div>
+          <div class="stat-tile">
+            <div class="num" id="stat-mins-week"></div>
+            <div class="lbl">MIN / WK</div>
+          </div>
+          <div class="stat-tile">
+            <div class="num" id="stat-mins-month"></div>
+            <div class="lbl">MIN / MO</div>
+          </div>
+          <div class="stat-tile">
+            <div class="num" id="stat-mins-year"></div>
+            <div class="lbl">MIN / YR</div>
+          </div>
+        </div>
+      </div>
+      <div id="month-grid"></div>
+    </div>
+    <div id="todo-block"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ============================================================
+     CONSTANTS (behavioral)
+     ============================================================ */
+  var WEEK_START = 0; // 0 = Sunday, 1 = Monday — controls both month-dot rows and week-todo boundary
+  var STORAGE_KEY = "yearProgressTodos";
+  var SAFETY_CHECK_INTERVAL_MS = 5 * 60 * 1000; // re-check date every 5 min in case timers were suspended (sleep/wake)
+  var MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"];
+
+  var PANEL_DEFS = [
+    { type: "year", periodKey: getYearKey, label: yearLabel },
+    { type: "quarter", periodKey: getQuarterKey, label: quarterLabel },
+    { type: "month", periodKey: getMonthKey, label: monthLabel },
+    { type: "week", periodKey: getWeekKey, label: weekLabel }
+  ];
+
+  var PANEL_BY_TYPE = {};
+  PANEL_DEFS.forEach(function (def) { PANEL_BY_TYPE[def.type] = def; });
+
+  // Column order left -> right. Arrows move a task ACROSS scopes, not through time:
+  // left arrow (dir -1) = broader scope (toward Year), right arrow (dir +1) = narrower (toward Week).
+  var SCOPE_ORDER = ["year", "quarter", "month", "week"];
+
+  var CARRY_OVER_TYPES = ["month", "quarter"]; // types where unfinished items roll into the next period automatically
+
+  /* ============================================================
+     DATE MATH
+     ============================================================ */
+  function isLeapYear(y) {
+    return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  }
+
+  function daysInYear(y) {
+    return isLeapYear(y) ? 366 : 365;
+  }
+
+  function daysInMonth(y, m) {
+    return new Date(y, m + 1, 0).getDate();
+  }
+
+  // UTC epoch trick avoids DST off-by-one errors when diffing local dates.
+  function dayOfYear(date) {
+    var y = date.getFullYear();
+    var start = Date.UTC(y, 0, 1);
+    var cur = Date.UTC(y, date.getMonth(), date.getDate());
+    return Math.round((cur - start) / 86400000) + 1;
+  }
+
+  function pad2(n) {
+    return String(n).padStart(2, "0");
+  }
+
+  function startOfWeek(date, weekStart) {
+    var dow = date.getDay();
+    var diff = (dow - weekStart + 7) % 7;
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate() - diff);
+  }
+
+  function getYearKey(d) { return String(d.getFullYear()); }
+
+  function getQuarterKey(d) {
+    var q = Math.floor(d.getMonth() / 3) + 1;
+    return d.getFullYear() + "-Q" + q;
+  }
+
+  function getMonthKey(d) {
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1);
+  }
+
+  function getWeekKey(d) {
+    var s = startOfWeek(d, WEEK_START);
+    return s.getFullYear() + "-" + pad2(s.getMonth() + 1) + "-" + pad2(s.getDate());
+  }
+
+  function localDateKey(d) {
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+  }
+
+  // Returns the period key one step (dir = -1 or 1) before/after `key`, for the given panel type.
+  function shiftPeriodKey(type, key, dir) {
+    if (type === "year") {
+      return String(parseInt(key, 10) + dir);
+    }
+    if (type === "quarter") {
+      var qParts = key.split("-Q");
+      var qy = parseInt(qParts[0], 10);
+      var q = parseInt(qParts[1], 10) + dir;
+      while (q > 4) { q -= 4; qy += 1; }
+      while (q < 1) { q += 4; qy -= 1; }
+      return qy + "-Q" + q;
+    }
+    if (type === "month") {
+      var mParts = key.split("-");
+      var my = parseInt(mParts[0], 10);
+      var mm = parseInt(mParts[1], 10) + dir;
+      while (mm > 12) { mm -= 12; my += 1; }
+      while (mm < 1) { mm += 12; my -= 1; }
+      return my + "-" + pad2(mm);
+    }
+    // week: key is the Sunday/Monday start date "YYYY-MM-DD" — step by 7 days
+    var wParts = key.split("-").map(Number);
+    var wDate = new Date(wParts[0], wParts[1] - 1, wParts[2] + dir * 7);
+    return wDate.getFullYear() + "-" + pad2(wDate.getMonth() + 1) + "-" + pad2(wDate.getDate());
+  }
+
+  // Inverse of each periodKey() function — reconstructs a representative Date from a period key,
+  // used to derive a human label (via def.label) for a period we're not currently viewing.
+  function keyToDate(type, key) {
+    if (type === "year") return new Date(parseInt(key, 10), 0, 1);
+    if (type === "quarter") {
+      var qParts = key.split("-Q");
+      return new Date(parseInt(qParts[0], 10), (parseInt(qParts[1], 10) - 1) * 3, 1);
+    }
+    if (type === "month") {
+      var mParts = key.split("-");
+      return new Date(parseInt(mParts[0], 10), parseInt(mParts[1], 10) - 1, 1);
+    }
+    var wParts = key.split("-").map(Number);
+    return new Date(wParts[0], wParts[1] - 1, wParts[2]);
+  }
+
+  function yearLabel(d) { return String(d.getFullYear()); }
+
+  function quarterLabel(d) {
+    var q = Math.floor(d.getMonth() / 3) + 1;
+    return "Q" + q + " " + d.getFullYear();
+  }
+
+  function monthLabel(d) {
+    return d.toLocaleString("en-US", { month: "long", year: "numeric" });
+  }
+
+  function weekLabel(d) {
+    var s = startOfWeek(d, WEEK_START);
+    return "Week of " + s.toLocaleString("en-US", { month: "short", day: "numeric" });
+  }
+
+  /* ============================================================
+     STATS + MONTH GRID RENDERING
+     ============================================================ */
+  function renderStats(now) {
+    var year = now.getFullYear();
+    var total = daysInYear(year);
+    var todayIdx = dayOfYear(now);
+    var remaining = total - todayIdx;
+    var pct = Math.round((todayIdx / total) * 100);
+
+    document.getElementById("day-eyebrow").textContent = "Year progress // " + year;
+    // Big readout: days remaining. Tile below: day elapsed of total ("Day 191 of 365").
+    document.getElementById("day-number").textContent = remaining;
+    document.getElementById("day-of-total").textContent = "Days Left";
+    document.getElementById("pct-label").textContent = pct + "%";
+    document.getElementById("progress-fill").style.width = pct + "%";
+    document.getElementById("stat-remaining").textContent = "Day " + todayIdx;
+    document.getElementById("stat-remaining-lbl").textContent = "of " + total;
+    document.getElementById("stat-weeks").textContent = Math.round(remaining / 7);
+  }
+
+  function minutesUntil(target, now) {
+    return Math.max(0, Math.floor((target.getTime() - now.getTime()) / 60000));
+  }
+
+  // Standalone minutes remaining in the current week/month/year (each independent, not a remainder
+  // of the others) — ticks every second, independent of the daily/midnight re-render.
+  function renderLiveCountdown() {
+    var now = new Date();
+
+    var dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+
+    var weekStart = startOfWeek(now, WEEK_START);
+    var weekEnd = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 7, 0, 0, 0, 0);
+
+    var monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
+
+    // Quarter end: first day of the month starting the next quarter (Jan/Apr/Jul/Oct).
+    var qStartMonth = Math.floor(now.getMonth() / 3) * 3;
+    var quarterEnd = new Date(now.getFullYear(), qStartMonth + 3, 1, 0, 0, 0, 0);
+
+    var yearEnd = new Date(now.getFullYear() + 1, 0, 1, 0, 0, 0, 0);
+
+    document.getElementById("stat-mins-day").textContent = minutesUntil(dayEnd, now).toLocaleString("en-US");
+    document.getElementById("stat-mins-week").textContent = minutesUntil(weekEnd, now).toLocaleString("en-US");
+    document.getElementById("stat-mins-month").textContent = minutesUntil(monthEnd, now).toLocaleString("en-US");
+    document.getElementById("stat-mins-year").textContent = minutesUntil(yearEnd, now).toLocaleString("en-US");
+
+    // Per-column "minutes left in this period" lines in the todo panels.
+    var periodEnds = { year: yearEnd, quarter: quarterEnd, month: monthEnd, week: weekEnd };
+    document.querySelectorAll(".todo-mins").forEach(function (el) {
+      var end = periodEnds[el.getAttribute("data-mins")];
+      if (!end) return;
+      el.textContent = minutesUntil(end, now).toLocaleString("en-US") + " min left";
+    });
+  }
+
+  // Tally completed-task counts per local date key ("YYYY-MM-DD"), across all 4 lists combined.
+  function buildCompletionCounts() {
+    var counts = {};
+    ["year", "quarter", "month", "week"].forEach(function (type) {
+      var periods = store[type];
+      Object.keys(periods).forEach(function (periodKey) {
+        periods[periodKey].forEach(function (item) {
+          if (!item.done || !item.completedAt) return;
+          var dk = localDateKey(new Date(item.completedAt));
+          counts[dk] = (counts[dk] || 0) + 1;
+        });
+      });
+    });
+    return counts;
+  }
+
+  function heatClassForCount(count) {
+    if (count >= 4) return "heat-4";
+    if (count === 3) return "heat-3";
+    if (count === 2) return "heat-2";
+    if (count === 1) return "heat-1";
+    return "heat-0";
+  }
+
+  function renderMonthGrid(now) {
+    var year = now.getFullYear();
+    var currentMonth = now.getMonth();
+    var todayDate = now.getDate();
+    var completionCounts = buildCompletionCounts();
+
+    var wrap = document.getElementById("month-grid");
+    wrap.innerHTML = "";
+
+    for (var m = 0; m < 12; m++) {
+      var card = document.createElement("div");
+      card.className = "month-card" + (m === currentMonth ? " current" : "");
+
+      var name = document.createElement("div");
+      name.className = "month-name";
+      var nameLabel = document.createElement("span");
+      nameLabel.textContent = MONTH_NAMES[m];
+      var nameIdx = document.createElement("span");
+      nameIdx.className = "idx";
+      nameIdx.textContent = pad2(m + 1);
+      name.appendChild(nameLabel);
+      name.appendChild(nameIdx);
+      card.appendChild(name);
+
+      var dots = document.createElement("div");
+      dots.className = "day-dots";
+
+      var firstDow = new Date(year, m, 1).getDay();
+      var leadingOffset = (firstDow - WEEK_START + 7) % 7;
+      var total = daysInMonth(year, m);
+
+      for (var i = 0; i < leadingOffset; i++) {
+        var empty = document.createElement("div");
+        empty.className = "dot dot-empty";
+        dots.appendChild(empty);
+      }
+
+      for (var d = 1; d <= total; d++) {
+        var dot = document.createElement("div");
+        if (m < currentMonth || (m === currentMonth && d < todayDate)) {
+          var dk = year + "-" + pad2(m + 1) + "-" + pad2(d);
+          var heatClass = heatClassForCount(completionCounts[dk] || 0);
+          dot.className = "dot dot-past " + heatClass;
+        } else if (m === currentMonth && d === todayDate) {
+          dot.className = "dot dot-today";
+        } else {
+          dot.className = "dot";
+        }
+        dots.appendChild(dot);
+      }
+
+      card.appendChild(dots);
+      wrap.appendChild(card);
+    }
+  }
+
+  /* ============================================================
+     TO-DO: STORAGE
+     ============================================================ */
+  function emptyStore() {
+    return { year: {}, quarter: {}, month: {}, week: {} };
+  }
+
+  function loadStore() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return emptyStore();
+      var parsed = JSON.parse(raw);
+      return {
+        year: parsed.year || {},
+        quarter: parsed.quarter || {},
+        month: parsed.month || {},
+        week: parsed.week || {}
+      };
+    } catch (e) {
+      console.warn("yearProgressTodos: corrupted storage, resetting.", e);
+      return emptyStore();
+    }
+  }
+
+  function saveStore(store) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    } catch (e) {
+      console.warn("yearProgressTodos: failed to save.", e);
+    }
+  }
+
+  var store = loadStore();
+
+  function getItems(type, key) {
+    if (!store[type][key]) store[type][key] = [];
+    return store[type][key];
+  }
+
+  function makeId() {
+    return (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random().toString(36).slice(2));
+  }
+
+  // For month/quarter lists: once a period ends, any unfinished items automatically roll into the
+  // *current* period's list (flagged `carried` so the panel can badge them), rather than staying
+  // stranded in a column that's no longer shown. Done items stay behind in their original period —
+  // they're history, not carried forward. Walks all past periods (not just "the previous one") so a
+  // gap of several months (app closed over a boundary) still catches everything.
+  function migrateCarryOver(now) {
+    var changed = false;
+    CARRY_OVER_TYPES.forEach(function (type) {
+      var def = PANEL_BY_TYPE[type];
+      var currentKey = def.periodKey(now);
+      var currentDate = keyToDate(type, currentKey);
+      var periods = store[type];
+      Object.keys(periods).forEach(function (key) {
+        if (key === currentKey) return;
+        if (keyToDate(type, key).getTime() >= currentDate.getTime()) return;
+        var arr = periods[key];
+        for (var i = arr.length - 1; i >= 0; i--) {
+          if (arr[i].done) continue;
+          var item = arr.splice(i, 1)[0];
+          item.carried = true;
+          getItems(type, currentKey).push(item);
+          changed = true;
+        }
+      });
+    });
+    if (changed) saveStore(store);
+  }
+
+  function movePeriodLabel(type) {
+    return type === "quarter" ? "last quarter" : "last month";
+  }
+
+  /* ============================================================
+     TO-DO: RENDERING + EDITING
+     ============================================================ */
+  function renderTodos(now) {
+    var block = document.getElementById("todo-block");
+    block.innerHTML = "";
+    PANEL_DEFS.forEach(function (def) {
+      block.appendChild(renderPanel(def, now));
+    });
+    // panels rebuilt — re-report their rects to the native host (if present)
+    if (window.__wp && window.__wp.reportRects) window.__wp.reportRects();
+    // fill the freshly-created per-column "min left" lines immediately (next tick is up to 1s away)
+    renderLiveCountdown();
+  }
+
+  function renderPanel(def, now) {
+    var key = def.periodKey(now);
+    var items = getItems(def.type, key);
+    var done = items.filter(function (it) { return it.done; }).length;
+
+    var panel = document.createElement("div");
+    panel.className = "todo-panel";
+
+    var header = document.createElement("div");
+    header.className = "todo-header";
+    var title = document.createElement("span");
+    title.textContent = def.label(now);
+    var count = document.createElement("span");
+    count.className = "todo-count";
+    count.textContent = items.length ? done + "/" + items.length : "";
+    header.appendChild(title);
+    header.appendChild(count);
+    panel.appendChild(header);
+
+    // Live "minutes left in this period" line. Filled + ticked by renderLiveCountdown
+    // via the data-mins attribute (which carries the panel type).
+    var mins = document.createElement("div");
+    mins.className = "todo-mins";
+    mins.setAttribute("data-mins", def.type);
+    panel.appendChild(mins);
+
+    var list = document.createElement("ul");
+    list.className = "todo-list";
+    // Render pending (undone) items first, completed items at bottom
+    var sorted = items.slice().sort(function (a, b) { return (a.done ? 1 : 0) - (b.done ? 1 : 0); });
+    sorted.forEach(function (item) {
+      list.appendChild(renderItem(def.type, key, item, now));
+    });
+    panel.appendChild(list);
+
+    // Toast for move feedback — shown briefly when item is moved to a non-visible period
+    var toast = document.createElement("div");
+    toast.className = "move-toast";
+    toast.setAttribute("data-panel", def.type);
+    panel.appendChild(toast);
+
+    var addInput = document.createElement("input");
+    addInput.className = "todo-add";
+    addInput.type = "text";
+    addInput.placeholder = "+ add item";
+    addInput.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") return;
+      var text = addInput.value.trim();
+      if (!text) return;
+      getItems(def.type, key).push({ id: makeId(), text: text, done: false, createdAt: new Date().toISOString(), completedAt: null });
+      saveStore(store);
+      addInput.value = "";
+      renderTodos(now);
+    });
+    panel.appendChild(addInput);
+
+    // Click anywhere in the column's empty space -> focus the add-input. Makes the
+    // whole panel a forgiving target instead of the thin input line. Clicks on real
+    // controls (check/move/del/text/input) keep their own behavior.
+    panel.addEventListener("mousedown", function (e) {
+      if (e.target.closest(".check, .del, .move, .item-text, .item-edit, input")) return;
+      e.preventDefault();          // don't steal focus from an active edit mid-commit
+      addInput.focus();
+    });
+
+    return panel;
+  }
+
+  function formatDate(iso) {
+    return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  // Move a task ACROSS scope columns (Year/Quarter/Month/Week), not through time.
+  // dir -1 = broader scope (left, toward Year); dir +1 = narrower (right, toward Week).
+  // The destination period is the one (in the new scope) that currently contains the
+  // item — mapped from `now` — so e.g. a July Month task moved left lands in this year's
+  // Q3, not some past quarter.
+  function moveItem(type, key, item, dir, now) {
+    var fromIdx = SCOPE_ORDER.indexOf(type);
+    var toIdx = fromIdx + dir;
+    if (toIdx < 0 || toIdx >= SCOPE_ORDER.length) return; // already at edge column — no-op
+    var targetType = SCOPE_ORDER[toIdx];
+
+    var arr = getItems(type, key);
+    var idx = arr.findIndex(function (it) { return it.id === item.id; });
+    if (idx === -1) return;
+    arr.splice(idx, 1);
+    item.carried = false; // manual move — no longer an auto-rolled pending item
+
+    var targetDef = PANEL_BY_TYPE[targetType];
+    var targetKey = targetDef.periodKey(now);       // the live period for the new scope
+    getItems(targetType, targetKey).push(item);
+    saveStore(store);
+
+    // The item left this column entirely; flash a "moved to <scope>" confirmation here.
+    renderTodos(now);
+    var targetLabel = targetDef.label(now);
+    var allToasts = document.querySelectorAll(".move-toast[data-panel=\"" + type + "\"]");
+    if (allToasts.length) {
+      var toast = allToasts[0];
+      toast.textContent = "moved to " + targetLabel;
+      toast.classList.add("visible");
+      setTimeout(function () { toast.classList.remove("visible"); }, 2500);
+    }
+  }
+
+  function renderItem(type, key, item, now) {
+    var li = document.createElement("li");
+    li.className = "todo-item" + (item.done ? " done" : "");
+
+    var row = document.createElement("div");
+    row.className = "item-row";
+
+    var check = document.createElement("span");
+    check.className = "check";
+    check.addEventListener("click", function () {
+      item.done = !item.done;
+      item.completedAt = item.done ? new Date().toISOString() : null;
+      if (item.done) item.carried = false;
+      saveStore(store);
+      renderTodos(now);
+    });
+    row.appendChild(check);
+
+    var text = document.createElement("span");
+    text.className = "item-text";
+    text.textContent = item.text;
+    text.addEventListener("click", function () {
+      startEdit(li, text, type, key, item, now);
+    });
+    row.appendChild(text);
+
+    if (item.carried) {
+      var badge = document.createElement("span");
+      badge.className = "pending-badge";
+      badge.title = "Rolled over — wasn't finished " + movePeriodLabel(type);
+      badge.textContent = "PENDING";
+      row.appendChild(badge);
+    }
+
+    // Arrows move the task across scope columns. Left = broader (toward Year),
+    // right = narrower (toward Week). Omit the arrow that would fall off the edge.
+    var scopeIdx = SCOPE_ORDER.indexOf(type);
+    if (scopeIdx > 0) {
+      var movePrev = document.createElement("span");
+      movePrev.className = "move";
+      movePrev.textContent = "‹";
+      movePrev.title = "Move to " + PANEL_BY_TYPE[SCOPE_ORDER[scopeIdx - 1]].label(now);
+      movePrev.addEventListener("click", function () {
+        moveItem(type, key, item, -1, now);
+      });
+      row.appendChild(movePrev);
+    }
+    if (scopeIdx < SCOPE_ORDER.length - 1) {
+      var moveNext = document.createElement("span");
+      moveNext.className = "move";
+      moveNext.textContent = "›";
+      moveNext.title = "Move to " + PANEL_BY_TYPE[SCOPE_ORDER[scopeIdx + 1]].label(now);
+      moveNext.addEventListener("click", function () {
+        moveItem(type, key, item, 1, now);
+      });
+      row.appendChild(moveNext);
+    }
+
+    var del = document.createElement("span");
+    del.className = "del";
+    del.textContent = "✕";
+    del.addEventListener("click", function () {
+      var arr = getItems(type, key);
+      var idx = arr.findIndex(function (it) { return it.id === item.id; });
+      if (idx !== -1) arr.splice(idx, 1);
+      saveStore(store);
+      renderTodos(now);
+    });
+    row.appendChild(del);
+
+    li.appendChild(row);
+
+    var dates = document.createElement("div");
+    dates.className = "item-dates";
+    if (item.done && item.completedAt) {
+      var mins = Math.round((new Date(item.completedAt) - new Date(item.createdAt)) / 60000);
+      var duration = mins < 60
+        ? mins + "m"
+        : Math.floor(mins / 60) + "h " + (mins % 60) + "m";
+      dates.textContent = "added " + formatDate(item.createdAt) + " · done " + formatDate(item.completedAt) + " · " + duration;
+    } else {
+      dates.textContent = "added " + formatDate(item.createdAt);
+    }
+    li.appendChild(dates);
+
+    return li;
+  }
+
+  function startEdit(li, textEl, type, key, item, now) {
+    var input = document.createElement("input");
+    input.className = "item-edit";
+    input.type = "text";
+    input.value = item.text;
+    // textEl is inside the .item-row div, not a direct li child — use parentNode
+    textEl.parentNode.replaceChild(input, textEl);
+    input.focus();
+    input.select();
+
+    function commit() {
+      var val = input.value.trim();
+      item.text = val || item.text;
+      saveStore(store);
+      renderTodos(now);
+    }
+
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") commit();
+      else if (e.key === "Escape") renderTodos(now);
+    });
+    input.addEventListener("blur", commit);
+  }
+
+  /* ============================================================
+     RENDER LOOP + SCHEDULING
+     ============================================================ */
+  var lastRenderedDayOfYear = null;
+  var midnightTimer = null;
+
+  function renderAll() {
+    var now = new Date();
+    lastRenderedDayOfYear = dayOfYear(now);
+    migrateCarryOver(now);
+    renderStats(now);
+    renderMonthGrid(now);
+    renderTodos(now);
+    fitLayout();
+  }
+
+  // Scale-to-fit so the wallpaper NEVER scrolls or clips, on any display or macOS
+  // display-scaling setting ("Default" vs "More Space" change the logical px count,
+  // so a fixed-px layout that fits one overflows the other). We measure the layout's
+  // natural size, then shrink it proportionally to fit the viewport minus symmetric
+  // insets. transform:scale keeps aspect and stays scaling-independent — it reacts to
+  // whatever viewport it lands in. getBoundingClientRect returns POST-transform coords,
+  // so the native host's todo-panel hit-rects stay correct (reportRects re-run after).
+  var fitPending = false;
+  function fitLayout() {
+    var layout = document.getElementById("layout");
+    if (!layout) return;
+    layout.style.transform = "none";                 // reset to measure natural size
+    var vw = document.documentElement.clientWidth;
+    var vh = document.documentElement.clientHeight;
+    var rect = layout.getBoundingClientRect();
+    var topInset = rect.top;                          // from --layout-top (5vh)
+    var leftInset = rect.left;                        // from --layout-left (3vw)
+    var availW = vw - leftInset * 2;                  // symmetric right inset
+    var availH = vh - topInset * 2;                   // symmetric bottom inset
+    var scale = Math.min(1, availW / rect.width, availH / rect.height);
+    if (scale < 1) {
+      layout.style.transformOrigin = "top left";
+      layout.style.transform = "scale(" + scale + ")";
+    }
+    if (window.__wp && window.__wp.reportRects) window.__wp.reportRects();
+  }
+
+  // rAF-coalesced resize handler: fit + report once per frame, not per event.
+  function onViewportChange() {
+    if (fitPending) return;
+    fitPending = true;
+    requestAnimationFrame(function () { fitPending = false; fitLayout(); });
+  }
+
+  function scheduleMidnightUpdate() {
+    var now = new Date();
+    var nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5);
+    var ms = nextMidnight.getTime() - now.getTime();
+    if (midnightTimer) clearTimeout(midnightTimer);
+    midnightTimer = setTimeout(function () {
+      renderAll();
+      scheduleMidnightUpdate();
+    }, ms);
+  }
+
+  function startSafetyNet() {
+    setInterval(function () {
+      var idx = dayOfYear(new Date());
+      if (idx !== lastRenderedDayOfYear) renderAll();
+    }, SAFETY_CHECK_INTERVAL_MS);
+  }
+
+  /* ============================================================
+     SETTINGS  (theme + background opacity) — own storage key, so
+     todo data is never touched by settings writes.
+     ============================================================ */
+  var SETTINGS_KEY = "yearProgressSettings";
+
+  var VALID_THEMES = ["original", "neutral", "white"];
+  function normTheme(t) { return VALID_THEMES.indexOf(t) !== -1 ? t : "original"; }
+
+  function loadSettings() {
+    var defaults = { theme: "original", opacity: 0 };
+    try {
+      var raw = localStorage.getItem(SETTINGS_KEY);
+      if (!raw) return defaults;
+      var s = JSON.parse(raw);
+      return {
+        theme: normTheme(s.theme),
+        opacity: (typeof s.opacity === "number") ? Math.max(0, Math.min(100, s.opacity)) : 0
+      };
+    } catch (e) {
+      return defaults;
+    }
+  }
+
+  function saveSettings(s) {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
+    catch (e) { console.warn("settings save failed", e); }
+  }
+
+  function applySettings(s) {
+    var root = document.documentElement;
+    // "original" is the default var set (no attribute); others match a data-theme block.
+    if (s.theme && s.theme !== "original") root.setAttribute("data-theme", s.theme);
+    else root.removeAttribute("data-theme");
+    root.style.setProperty("--scrim-opacity", (s.opacity / 100).toString());
+  }
+
+  var currentSettings = loadSettings();
+
+  // Public API the native app calls (menu bar drives settings — no in-page UI).
+  // Also lets the native menu read current values to show checkmarks.
+  window.__wp = {
+    setTheme: function (theme) {
+      currentSettings.theme = normTheme(theme);
+      applySettings(currentSettings);
+      saveSettings(currentSettings);
+    },
+    setOpacity: function (pct) {
+      currentSettings.opacity = Math.max(0, Math.min(100, parseInt(pct, 10) || 0));
+      applySettings(currentSettings);
+      saveSettings(currentSettings);
+    },
+    getSettings: function () { return currentSettings; }
+  };
+
+  // Report interactive rectangles (todo panels) to the native host so it can do a
+  // SYNCHRONOUS point-in-rect test on mouse-move — no async elementFromPoint race,
+  // which was causing ~80% of clicks to leak to the desktop. Sent on every render
+  // and on resize. Coordinates are page (top-left origin) CSS pixels.
+  function reportRects() {
+    if (!(window.webkit && window.webkit.messageHandlers &&
+          window.webkit.messageHandlers.rects)) return;
+    var rects = [];
+    document.querySelectorAll(".todo-panel").forEach(function (p) {
+      var r = p.getBoundingClientRect();
+      rects.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+    });
+    window.webkit.messageHandlers.rects.postMessage(rects);
+  }
+  window.__wp.reportRects = reportRects;
+
+  function initSettings() {
+    applySettings(currentSettings);
+    reportRects();
+    // Re-fit AND re-report on resize (external monitor plugged in, scaling changed,
+    // Space/window resize). fitLayout calls reportRects itself, so one handler covers both.
+    window.addEventListener("resize", onViewportChange);
+  }
+
+  renderAll();
+  scheduleMidnightUpdate();
+  startSafetyNet();
+  renderLiveCountdown();
+  setInterval(renderLiveCountdown, 1000);
+  initSettings();
+})();
+</script>
+</body>
+</html>

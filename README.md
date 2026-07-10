@@ -21,7 +21,7 @@ This wallpaper puts that number on your desktop, permanently, in your peripheral
 
 ## What it does
 
-A single `index.html` file — no app, no subscription, no account, no internet.
+A single self-contained HTML file — no app, no subscription, no account, no internet. Two builds ship: **`index.html`** (transparent — for macOS, so desktop folders show through) and **`index-windows.html`** (solid black — for Windows/Lively). They are identical except for the backdrop.
 
 **Left side:** A GitHub-style grid of every day in the year. Past days fill in. Today glows. Days where you completed tasks get a darker green — the more tasks, the darker. At a glance you see not just how far through the year you are, but where you were actually working.
 
@@ -68,7 +68,7 @@ Download from the [Microsoft Store](https://apps.microsoft.com/store/detail/live
 
 **Step 2 — Load the wallpaper**
 
-Open Lively → click **Add Wallpaper** → select **Web** → pick `index.html` from this folder.
+Open Lively → click **Add Wallpaper** → select **Web** → pick **`index-windows.html`** from this folder. (Windows uses the solid-black build; `index.html` is the transparent macOS build — using it on Windows would show a see-through backdrop.)
 
 **Step 3 — Enable interaction**
 
