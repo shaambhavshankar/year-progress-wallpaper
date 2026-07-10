@@ -136,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         // Theme submenu
         let themeItem = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
         let themeMenu = NSMenu()
-        for (title, val) in [("Original", "original"), ("Neutral (white/grey)", "neutral")] {
+        for (title, val) in [("Original", "original"), ("Neutral (white/grey)", "neutral"), ("White (pure white)", "white")] {
             let mi = NSMenuItem(title: title, action: #selector(setTheme(_:)), keyEquivalent: "")
             mi.target = self
             mi.representedObject = val

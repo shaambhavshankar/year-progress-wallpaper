@@ -546,6 +546,34 @@
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
   }
 
+  /* White theme: EVERY text color and dot is pure #ffffff — zero grey. Lines use
+     white at reduced alpha (still pure white, no grey hex) so borders read as
+     faint white hairlines rather than a solid block. All heat levels collapse to
+     white — the heatmap gradient is gone by design in this theme. */
+  html[data-theme="white"] {
+    --text-color: #ffffff;
+    --text-muted: #ffffff;
+    --text-faint: #ffffff;
+    --accent: #ffffff;
+    --accent-dim: rgba(255, 255, 255, 0.28);
+    --card-border: rgba(255, 255, 255, 0.55);
+    --card-border-strong: rgba(255, 255, 255, 0.8);
+    --panel-border: rgba(255, 255, 255, 0.55);
+    --dot-past: #ffffff;
+    --heat-0: #ffffff;
+    --heat-1: #ffffff;
+    --heat-2: #ffffff;
+    --heat-3: #ffffff;
+    --heat-4: #ffffff;
+  }
+  html[data-theme="white"] body {
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  }
+  /* Future/empty dots have a faint border in the base theme via --text-faint; in
+     white theme that would become a solid white square, so soften to a hairline. */
+  html[data-theme="white"] .dot { border-color: rgba(255, 255, 255, 0.5); }
+  html[data-theme="white"] .dot-empty { border-color: transparent; }
+
   /* Opacity scrim: a dark full-screen backdrop whose alpha the slider drives.
      pointer-events:none is CRITICAL — it must never intercept clicks or the
      native pass-through hit-test would treat the whole screen as interactive
@@ -1239,6 +1267,9 @@
      ============================================================ */
   var SETTINGS_KEY = "yearProgressSettings";
 
+  var VALID_THEMES = ["original", "neutral", "white"];
+  function normTheme(t) { return VALID_THEMES.indexOf(t) !== -1 ? t : "original"; }
+
   function loadSettings() {
     var defaults = { theme: "original", opacity: 0 };
     try {
@@ -1246,7 +1277,7 @@
       if (!raw) return defaults;
       var s = JSON.parse(raw);
       return {
-        theme: (s.theme === "neutral") ? "neutral" : "original",
+        theme: normTheme(s.theme),
         opacity: (typeof s.opacity === "number") ? Math.max(0, Math.min(100, s.opacity)) : 0
       };
     } catch (e) {
@@ -1261,7 +1292,8 @@
 
   function applySettings(s) {
     var root = document.documentElement;
-    if (s.theme === "neutral") root.setAttribute("data-theme", "neutral");
+    // "original" is the default var set (no attribute); others match a data-theme block.
+    if (s.theme && s.theme !== "original") root.setAttribute("data-theme", s.theme);
     else root.removeAttribute("data-theme");
     root.style.setProperty("--scrim-opacity", (s.opacity / 100).toString());
   }
@@ -1272,7 +1304,7 @@
   // Also lets the native menu read current values to show checkmarks.
   window.__wp = {
     setTheme: function (theme) {
-      currentSettings.theme = (theme === "neutral") ? "neutral" : "original";
+      currentSettings.theme = normTheme(theme);
       applySettings(currentSettings);
       saveSettings(currentSettings);
     },
