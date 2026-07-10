@@ -88,38 +88,57 @@ Click any to-do panel. Type a task. Press Enter. Reboot. The task should still b
 
 ## Setup — macOS
 
-macOS has no public API for true live wallpapers. Every solution is an overlay window that sits above your static wallpaper. The visual result is identical — the only side effect is the menu bar tint still reads from the static wallpaper behind it.
+macOS has no public API for true live wallpapers, and every third-party wallpaper host (Plash, AetherDesk) deliberately makes its window refuse keyboard focus — so you can *see* the wallpaper but can't reliably *type* into it. To get a wallpaper you can click and type into directly on the desktop, this repo ships its own tiny native host: **YearWallpaper.app**.
 
-**Option A — Plash** (simplest)
+**Option A — YearWallpaper.app** (recommended — type directly on the desktop)
+
+A ~130-line Swift/WebKit app under [`macos/`](macos/). It renders `index.html` in a transparent, full-screen window pinned at the desktop-icon layer, and — unlike Plash/AetherDesk — its window *can* take keyboard focus, so to-dos are editable in place. Your desktop folders stay visible and clickable through the transparent background. Apple Silicon, macOS 13+.
+
+**Install (prebuilt):**
+
+1. Download this repo (green **Code** button → **Download ZIP**, or `git clone`).
+2. Open the `macos` folder in Finder.
+3. Double-click **`install.command`**. It copies `YearWallpaper.app` to `/Applications`, clears the download-quarantine flag so macOS doesn't block it, and launches it.
+   - If macOS still warns "unidentified developer": right-click the app → **Open** → **Open**. Only needed once.
+4. Look for the **◔** icon in your menu bar. That's the whole UI:
+   - **Theme** — *Original* (dark, mint accent) or *Neutral* (white/grey, readable on any wallpaper).
+   - **Background** — transparency of the backdrop (0% = fully see-through, 100% = solid).
+   - **Open at Login** — relaunch automatically after reboot.
+   - **Quit**.
+5. Set a dark solid desktop picture (`System Settings → Wallpaper`) if you want the panels to pop, or leave your photo and raise **Background** opacity a little.
+
+**One macOS setting to change:** turn off **System Settings → Desktop & Dock → "Click wallpaper to reveal desktop"** (set to *Only in Stage Manager*, or off). Otherwise clicking empty desktop space slides your windows away.
+
+**Build from source instead:**
+
+```bash
+cd year-progress-wallpaper
+zsh macos/src/build.sh      # needs Xcode command line tools; ffmpeg optional (for the app icon)
+```
+Produces `macos/YearWallpaper.app`, ad-hoc signed and ready to run. Source is `macos/src/main.swift`.
+
+> **Why a custom app?** Keyboard input on the desktop layer requires a window that returns `canBecomeKeyWindow = true`. Plash and AetherDesk return `false` by design, which is why their to-do editing never sticks. YearWallpaper overrides it, plus does synchronous cursor hit-testing so clicks reliably hit either a to-do panel (capture) or a desktop folder (pass through to Finder).
+
+**Option B — Plash** (no build, but read-mostly)
 
 1. Download from the [Mac App Store](https://apps.apple.com/app/plash/id1494023538). Free.
-2. Click the Plash icon in your menu bar → **Open URL…** → enter:
-   ```
-   file:///path/to/year-progress-wallpaper/index.html
-   ```
-   Replace `path/to` with the actual folder path.
-3. In **Plash Preferences**: enable full-screen coverage, set it to show on all spaces.
-4. To edit to-dos: menu bar → Plash → **Enter Browsing Mode** (enables clicks and typing). Exit Browsing Mode when done.
-5. Set your macOS wallpaper to a solid dark color (`System Settings → Wallpaper → Color`) so the overlay appears seamless.
+2. Menu bar Plash icon → **Open URL…** → `file:///path/to/year-progress-wallpaper/index.html` (use the real path).
+3. **Plash Preferences**: enable full-screen coverage, show on all spaces.
+4. To edit to-dos: menu bar → Plash → **Enter Browsing Mode**. Exit when done. (Typing here is unreliable — this is the limitation Option A solves.)
+5. Set a solid dark desktop color so the overlay looks seamless.
 
-> **localStorage on `file://`**: WebKit (Safari engine, used by Plash) may not persist `localStorage` on `file://` URLs across sessions in some configurations. If your tasks disappear after reboot, serve the file locally instead:
-> ```bash
-> cd /path/to/year-progress-wallpaper && python3 -m http.server 4321
-> ```
-> Then point Plash at `http://localhost:4321`. To make it survive reboot, add a Login Item or launchd plist that runs the command.
+> **localStorage on `file://`**: Plash's WebKit may not persist `localStorage` on `file://` across sessions. If tasks vanish after reboot, serve locally: `cd /path/to/year-progress-wallpaper && python3 -m http.server 4321`, then point Plash at `http://localhost:4321` (add a Login Item to survive reboot).
 
-**Option B — AetherDesk** (multi-monitor, more capable)
+**Option C — AetherDesk** (multi-monitor)
 
-1. Download from [GitHub](https://github.com/sdelavega/AetherDesk). Free, MIT license. Requires Apple Silicon Mac, macOS 12+.
-2. Drag to Applications, open it.
-3. Add wallpaper → select `index.html` from this folder. AetherDesk supports the Lively Wallpaper bundle format natively.
-4. Interaction is built in — click and type directly without toggling a mode.
+1. Download from [GitHub](https://github.com/sdelavega/AetherDesk). Free, MIT. Apple Silicon, macOS 12+.
+2. Drag to Applications, open, add wallpaper → select `index.html`. Same keyboard-focus caveat as Plash.
 
 ---
 
 ## Survives reboot?
 
-Yes. Both Lively (Windows) and Plash/AetherDesk (macOS) relaunch the wallpaper on login. The `localStorage` data persists on disk between sessions. The page also self-updates at local midnight and every 5 minutes as a safety net for sleep/wake cycles.
+Yes. On Windows, Lively relaunches on login. On macOS, YearWallpaper.app has **Open at Login** in its menu (Plash/AetherDesk relaunch on login too). The `localStorage` data persists on disk between sessions — YearWallpaper serves the page from a stable `wallpaper://` origin specifically so it survives relaunch. The page also self-updates at local midnight and every 5 minutes as a safety net for sleep/wake cycles.
 
 ---
 
