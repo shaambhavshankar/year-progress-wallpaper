@@ -575,7 +575,7 @@
         <div id="stat-tiles">
           <div class="stat-tile">
             <div class="num" id="stat-remaining"></div>
-            <div class="lbl">DAYS LEFT</div>
+            <div class="lbl" id="stat-remaining-lbl"></div>
           </div>
           <div class="stat-tile">
             <div class="num" id="stat-weeks"></div>
@@ -751,11 +751,13 @@
     var pct = Math.round((todayIdx / total) * 100);
 
     document.getElementById("day-eyebrow").textContent = "Year progress // " + year;
-    document.getElementById("day-number").textContent = "Day " + todayIdx;
-    document.getElementById("day-of-total").textContent = "of " + total;
+    // Big readout: days remaining. Tile below: day elapsed of total ("Day 191 of 365").
+    document.getElementById("day-number").textContent = remaining;
+    document.getElementById("day-of-total").textContent = "Days Left";
     document.getElementById("pct-label").textContent = pct + "%";
     document.getElementById("progress-fill").style.width = pct + "%";
-    document.getElementById("stat-remaining").textContent = remaining;
+    document.getElementById("stat-remaining").textContent = "Day " + todayIdx;
+    document.getElementById("stat-remaining-lbl").textContent = "of " + total;
     document.getElementById("stat-weeks").textContent = Math.round(remaining / 7);
   }
 
