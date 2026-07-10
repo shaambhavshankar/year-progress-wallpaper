@@ -637,6 +637,10 @@
   var PANEL_BY_TYPE = {};
   PANEL_DEFS.forEach(function (def) { PANEL_BY_TYPE[def.type] = def; });
 
+  // Column order left -> right. Arrows move a task ACROSS scopes, not through time:
+  // left arrow (dir -1) = broader scope (toward Year), right arrow (dir +1) = narrower (toward Week).
+  var SCOPE_ORDER = ["year", "quarter", "month", "week"];
+
   var CARRY_OVER_TYPES = ["month", "quarter"]; // types where unfinished items roll into the next period automatically
 
   /* ============================================================
@@ -1050,22 +1054,31 @@
     return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   }
 
-  function moveItem(type, key, item, dir, now, toastEl) {
+  // Move a task ACROSS scope columns (Year/Quarter/Month/Week), not through time.
+  // dir -1 = broader scope (left, toward Year); dir +1 = narrower (right, toward Week).
+  // The destination period is the one (in the new scope) that currently contains the
+  // item — mapped from `now` — so e.g. a July Month task moved left lands in this year's
+  // Q3, not some past quarter.
+  function moveItem(type, key, item, dir, now) {
+    var fromIdx = SCOPE_ORDER.indexOf(type);
+    var toIdx = fromIdx + dir;
+    if (toIdx < 0 || toIdx >= SCOPE_ORDER.length) return; // already at edge column — no-op
+    var targetType = SCOPE_ORDER[toIdx];
+
     var arr = getItems(type, key);
     var idx = arr.findIndex(function (it) { return it.id === item.id; });
     if (idx === -1) return;
     arr.splice(idx, 1);
     item.carried = false; // manual move — no longer an auto-rolled pending item
-    var targetKey = shiftPeriodKey(type, key, dir);
-    getItems(type, targetKey).push(item);
+
+    var targetDef = PANEL_BY_TYPE[targetType];
+    var targetKey = targetDef.periodKey(now);       // the live period for the new scope
+    getItems(targetType, targetKey).push(item);
     saveStore(store);
-    // Show destination label in the panel rather than silently removing the item from view.
-    // The item moved to a period not currently displayed, so re-render immediately and
-    // briefly flash a "moved to …" confirmation so the user knows it wasn't deleted.
-    var targetDate = keyToDate(type, targetKey);
-    var targetLabel = PANEL_BY_TYPE[type].label(targetDate);
+
+    // The item left this column entirely; flash a "moved to <scope>" confirmation here.
     renderTodos(now);
-    // Re-find the toast after re-render (renderTodos rebuilt the DOM)
+    var targetLabel = targetDef.label(now);
     var allToasts = document.querySelectorAll(".move-toast[data-panel=\"" + type + "\"]");
     if (allToasts.length) {
       var toast = allToasts[0];
@@ -1109,23 +1122,29 @@
       row.appendChild(badge);
     }
 
-    var movePrev = document.createElement("span");
-    movePrev.className = "move";
-    movePrev.textContent = "‹";
-    movePrev.title = "Move to previous period";
-    movePrev.addEventListener("click", function () {
-      moveItem(type, key, item, -1, now);
-    });
-    row.appendChild(movePrev);
-
-    var moveNext = document.createElement("span");
-    moveNext.className = "move";
-    moveNext.textContent = "›";
-    moveNext.title = "Move to next period";
-    moveNext.addEventListener("click", function () {
-      moveItem(type, key, item, 1, now);
-    });
-    row.appendChild(moveNext);
+    // Arrows move the task across scope columns. Left = broader (toward Year),
+    // right = narrower (toward Week). Omit the arrow that would fall off the edge.
+    var scopeIdx = SCOPE_ORDER.indexOf(type);
+    if (scopeIdx > 0) {
+      var movePrev = document.createElement("span");
+      movePrev.className = "move";
+      movePrev.textContent = "‹";
+      movePrev.title = "Move to " + PANEL_BY_TYPE[SCOPE_ORDER[scopeIdx - 1]].label(now);
+      movePrev.addEventListener("click", function () {
+        moveItem(type, key, item, -1, now);
+      });
+      row.appendChild(movePrev);
+    }
+    if (scopeIdx < SCOPE_ORDER.length - 1) {
+      var moveNext = document.createElement("span");
+      moveNext.className = "move";
+      moveNext.textContent = "›";
+      moveNext.title = "Move to " + PANEL_BY_TYPE[SCOPE_ORDER[scopeIdx + 1]].label(now);
+      moveNext.addEventListener("click", function () {
+        moveItem(type, key, item, 1, now);
+      });
+      row.appendChild(moveNext);
+    }
 
     var del = document.createElement("span");
     del.className = "del";
