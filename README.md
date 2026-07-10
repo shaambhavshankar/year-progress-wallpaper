@@ -3,7 +3,7 @@
 > Your calendar shows you *what day it is.*  
 > This shows you *how much of your life is passing.*
 
-[![Star History Chart](https://api.star-history.com/svg?repos=shaambhav/year-progress-wallpaper&type=Date)](https://star-history.com/#shaambhav/year-progress-wallpaper&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=shaambhavshankar/year-progress-wallpaper&type=Date)](https://star-history.com/#shaambhavshankar/year-progress-wallpaper&Date)
 
 **If this changes how you work, star it.** It takes one second and tells me to keep building.
 
