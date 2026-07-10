@@ -1241,6 +1241,41 @@
     renderStats(now);
     renderMonthGrid(now);
     renderTodos(now);
+    fitLayout();
+  }
+
+  // Scale-to-fit so the wallpaper NEVER scrolls or clips, on any display or macOS
+  // display-scaling setting ("Default" vs "More Space" change the logical px count,
+  // so a fixed-px layout that fits one overflows the other). We measure the layout's
+  // natural size, then shrink it proportionally to fit the viewport minus symmetric
+  // insets. transform:scale keeps aspect and stays scaling-independent — it reacts to
+  // whatever viewport it lands in. getBoundingClientRect returns POST-transform coords,
+  // so the native host's todo-panel hit-rects stay correct (reportRects re-run after).
+  var fitPending = false;
+  function fitLayout() {
+    var layout = document.getElementById("layout");
+    if (!layout) return;
+    layout.style.transform = "none";                 // reset to measure natural size
+    var vw = document.documentElement.clientWidth;
+    var vh = document.documentElement.clientHeight;
+    var rect = layout.getBoundingClientRect();
+    var topInset = rect.top;                          // from --layout-top (5vh)
+    var leftInset = rect.left;                        // from --layout-left (3vw)
+    var availW = vw - leftInset * 2;                  // symmetric right inset
+    var availH = vh - topInset * 2;                   // symmetric bottom inset
+    var scale = Math.min(1, availW / rect.width, availH / rect.height);
+    if (scale < 1) {
+      layout.style.transformOrigin = "top left";
+      layout.style.transform = "scale(" + scale + ")";
+    }
+    if (window.__wp && window.__wp.reportRects) window.__wp.reportRects();
+  }
+
+  // rAF-coalesced resize handler: fit + report once per frame, not per event.
+  function onViewportChange() {
+    if (fitPending) return;
+    fitPending = true;
+    requestAnimationFrame(function () { fitPending = false; fitLayout(); });
   }
 
   function scheduleMidnightUpdate() {
@@ -1335,7 +1370,9 @@
   function initSettings() {
     applySettings(currentSettings);
     reportRects();
-    window.addEventListener("resize", reportRects);
+    // Re-fit AND re-report on resize (external monitor plugged in, scaling changed,
+    // Space/window resize). fitLayout calls reportRects itself, so one handler covers both.
+    window.addEventListener("resize", onViewportChange);
   }
 
   renderAll();
