@@ -1375,12 +1375,35 @@
     window.addEventListener("resize", onViewportChange);
   }
 
+  // Windows/Lively (WebView2) can deliver each keystroke to a focused input TWICE —
+  // once natively, once re-injected by Lively's keyboard hook — producing double
+  // letters. De-dupe: swallow a second keydown for the same character key on the same
+  // element that arrives within a window no human could type (30ms). Skip genuine OS
+  // auto-repeat (e.repeat === true) so holding a key still repeats. Chromium derives the
+  // typed char from keydown's default action, so preventDefault here blocks the twin.
+  // Harmless on macOS/WKWebView, which never doubles — the guard just never fires there.
+  function installKeyDedup() {
+    var last = { key: null, target: null, t: 0 };
+    document.addEventListener("keydown", function (e) {
+      if (e.repeat) return;                       // real key-repeat, never dedupe
+      if (!e.key || e.key.length !== 1) return;   // only character keys (not Enter/arrows/etc.)
+      var t = e.timeStamp || 0;
+      if (e.key === last.key && e.target === last.target && (t - last.t) < 30) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
+      last.key = e.key; last.target = e.target; last.t = t;
+    }, true);                                     // capture phase: run before the input
+  }
+
   renderAll();
   scheduleMidnightUpdate();
   startSafetyNet();
   renderLiveCountdown();
   setInterval(renderLiveCountdown, 1000);
   initSettings();
+  installKeyDedup();
 })();
 </script>
 </body>
