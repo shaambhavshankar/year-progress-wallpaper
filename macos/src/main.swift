@@ -32,7 +32,7 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, NSMenuDelegate, WKNavigationDelegate {
     var window: WallpaperWindow!
     var statusItem: NSStatusItem!
     var web: ClickThroughWebView!
@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         web.underPageBackgroundColor = .clear
         if #available(macOS 13.3, *) { web.isInspectable = true }
         web.autoresizingMask = [.width, .height]
+        web.navigationDelegate = self   // re-show once the page paints (see showWindow rationale)
         web.load(URLRequest(url: URL(string: "wallpaper://home/index.html")!))
 
         let screen = NSScreen.main!
@@ -76,15 +77,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         window.hasShadow = false
         window.setFrame(screen.frame, display: true)
         window.contentView = web
-        // orderFrontRegardless: an ACCESSORY app relaunched while Finder holds
-        // activation is inactive, and makeKeyAndOrderFront is a no-op for an
-        // inactive app — the window never draws. orderFrontRegardless shows it
-        // regardless of activation state. (First launch worked only because
-        // launching briefly activates the app; relaunch does not.)
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
-        window.makeFirstResponder(web)
+        // Show now, and again after a runloop tick + after the page paints. See showWindow.
+        showWindow()
+        DispatchQueue.main.async { [weak self] in self?.showWindow() }
 
         // The fix: after you click desktop icons, Finder becomes the active app and
         // steals keystrokes — our accessory window sits at desktop-icon level and won't
@@ -124,6 +119,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         passthroughTimer = t
 
         buildMenu()
+    }
+
+    // Draw the wallpaper window. Called on launch, one runloop tick later, after the page
+    // paints, and on reopen. WHY the redundancy: a single-click Finder launch of an
+    // .accessory app doesn't fully activate the process, so a lone makeKeyAndOrderFront in
+    // didFinishLaunching can no-op and the window never draws (only a double-click, which
+    // sends an extra reopen event, forced it visible). Showing at several points guarantees
+    // one of them lands after the process is live. orderFrontRegardless works even while
+    // inactive; makeFirstResponder(web) reclaims typing.
+    func showWindow() {
+        guard let window = window else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        window.makeFirstResponder(web)
+    }
+
+    // Page finished painting — show again so the first single-click launch reliably draws.
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        showWindow()
+    }
+
+    // Clicking the Dock/Finder icon while we're already running sends this. Redraw so the
+    // window reappears even if a cold single-click launch didn't fully activate us.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showWindow()
+        return true
     }
 
     // ---- Menu bar (all settings live here, not in the wallpaper UI) ----
